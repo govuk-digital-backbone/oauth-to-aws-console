@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oauth-to-aws-console"
+version = "0.0.1"
+description = "Minimal OIDC to AWS console broker with Lambda Function URL"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "apig-wsgi>=2.20,<3",
+  "Authlib>=1.6,<2",
+  "awscrt>=0.23,<1",
+  "boto3>=1.37,<2",
+  "Flask>=3.1,<4",
+  "PyJWT[crypto]>=2.10,<3",
+  "requests>=2.32,<3",
+]
+
+[tool.setuptools]
+py-modules = ["app"]
