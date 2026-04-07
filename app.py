@@ -163,19 +163,20 @@ def validate_runtime_config(config: AppConfig) -> None:
         )
 
     parsed_dest = urlparse(config.aws_console_destination)
+    dest_host = parsed_dest.hostname or ""
     if parsed_dest.scheme != "https" or not any(
-        parsed_dest.hostname == d or (parsed_dest.hostname or "").endswith("." + d)
+        dest_host == d or dest_host.endswith("." + d)
         for d in ALLOWED_CONSOLE_DOMAINS
     ):
         raise ConfigError(
             "AWS_CONSOLE_DESTINATION must be an HTTPS URL on an AWS console domain"
         )
 
-    if not 0 < config.jwt_leeway_seconds <= MAX_JWT_LEEWAY_SECONDS:
+    if config.jwt_leeway_seconds <= 0 or config.jwt_leeway_seconds > MAX_JWT_LEEWAY_SECONDS:
         raise ConfigError(
             f"JWT_LEEWAY_SECONDS must be between 1 and {MAX_JWT_LEEWAY_SECONDS}"
         )
-    if not 0 < config.state_ttl_seconds <= MAX_STATE_TTL_SECONDS:
+    if config.state_ttl_seconds <= 0 or config.state_ttl_seconds > MAX_STATE_TTL_SECONDS:
         raise ConfigError(
             f"STATE_TTL_SECONDS must be between 1 and {MAX_STATE_TTL_SECONDS}"
         )
