@@ -7,7 +7,7 @@ import string
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import apig_wsgi
 import boto3
@@ -38,6 +38,13 @@ from jwt import InvalidTokenError, PyJWKClient
 DEFAULT_ISSUER = "https://sso.service.security.gov.uk"
 DEFAULT_CONSOLE_DESTINATION = "https://console.aws.amazon.com/"
 FEDERATION_ENDPOINT = "https://signin.aws.amazon.com/federation"
+ALLOWED_CONSOLE_DOMAINS = {
+    "console.aws.amazon.com",
+    "console.amazonaws-us-gov.com",
+    "console.amazonaws.cn",
+}
+MAX_JWT_LEEWAY_SECONDS = 120
+MAX_STATE_TTL_SECONDS = 1800
 ERROR_TEMPLATE = """<!doctype html>
 <html lang="en">
   <head>
@@ -118,9 +125,7 @@ def load_config_from_env() -> AppConfig:
         oidc_email_verified_claim=(
             os.getenv("OIDC_EMAIL_VERIFIED_CLAIM") or "email_verified"
         ).strip(),
-        app_secret_key=(
-            os.getenv("APP_SECRET_KEY") or secrets.token_urlsafe(32)
-        ).strip(),
+        app_secret_key=(os.getenv("APP_SECRET_KEY") or "").strip(),
         aws_role_arn=(os.getenv("AWS_ROLE_ARN") or "").strip(),
         aws_console_destination=(
             os.getenv("AWS_CONSOLE_DESTINATION") or DEFAULT_CONSOLE_DESTINATION
@@ -149,6 +154,30 @@ def validate_runtime_config(config: AppConfig) -> None:
     if missing:
         raise ConfigError(
             f"Missing required environment variables: {', '.join(missing)}"
+        )
+
+    parsed_issuer = urlparse(config.oidc_issuer)
+    if parsed_issuer.scheme != "https":
+        raise ConfigError(
+            "OIDC_ISSUER must use HTTPS (got %s)" % parsed_issuer.scheme
+        )
+
+    parsed_dest = urlparse(config.aws_console_destination)
+    if parsed_dest.scheme != "https" or not any(
+        parsed_dest.hostname == d or (parsed_dest.hostname or "").endswith("." + d)
+        for d in ALLOWED_CONSOLE_DOMAINS
+    ):
+        raise ConfigError(
+            "AWS_CONSOLE_DESTINATION must be an HTTPS URL on an AWS console domain"
+        )
+
+    if not 0 < config.jwt_leeway_seconds <= MAX_JWT_LEEWAY_SECONDS:
+        raise ConfigError(
+            f"JWT_LEEWAY_SECONDS must be between 1 and {MAX_JWT_LEEWAY_SECONDS}"
+        )
+    if not 0 < config.state_ttl_seconds <= MAX_STATE_TTL_SECONDS:
+        raise ConfigError(
+            f"STATE_TTL_SECONDS must be between 1 and {MAX_STATE_TTL_SECONDS}"
         )
 
 
@@ -247,7 +276,7 @@ def validate_id_token(
         audience=config.oidc_client_id,
         issuer=issuer,
         leeway=config.jwt_leeway_seconds,
-        options={"require": ["aud", "exp", "iat", "iss", "nonce"]},
+        options={"require": ["aud", "exp", "iat", "iss", "sub", "nonce"]},
     )
     if claims.get("nonce") != expected_nonce:
         raise InvalidTokenError("ID token nonce did not match the stored nonce")
@@ -473,6 +502,22 @@ def create_app(config: AppConfig | None = None) -> Flask:
     )
     app.extensions["oidc_client"] = oauth.oidc
 
+    @app.after_request
+    def set_security_headers(response: Response) -> Response:
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'none'; style-src 'unsafe-inline'",
+        )
+        if config.cookie_secure:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=63072000; includeSubDomains",
+            )
+        return response
+
     @app.get("/healthz")
     def healthcheck() -> tuple[dict[str, str], int]:
         return {"status": "ok"}, 200
@@ -639,4 +684,4 @@ handler = apig_wsgi.make_lambda_handler(app)
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8085")), debug=False)
+    app.run(host="127.0.0.1", port=int(os.getenv("PORT", "8085")), debug=False)

@@ -59,6 +59,13 @@ Defaults:
 - `JWT_LEEWAY_SECONDS=60`
 - `AWS_USE_SOURCE_IDENTITY=false`
 
+Constraints:
+
+- `OIDC_ISSUER` must use HTTPS.
+- `AWS_CONSOLE_DESTINATION` must be an HTTPS URL on a recognised AWS console domain.
+- `JWT_LEEWAY_SECONDS` must be between 1 and 120.
+- `STATE_TTL_SECONDS` must be between 1 and 1800.
+
 Optional:
 
 - `OIDC_REDIRECT_URI`
@@ -85,7 +92,7 @@ export COOKIE_SECURE="false"
 python app.py
 ```
 
-Then visit `http://localhost:8085/`.
+Then visit `http://127.0.0.1:8085/`.
 
 If your local AWS environment uses the newer login provider and the cached token is expired, refresh it first:
 
@@ -101,7 +108,7 @@ export AWS_VERIFY_SSL="false"
 
 That disables certificate verification for both boto STS calls and the AWS federation request. Leave it at the default `true` outside local troubleshooting.
 
-Your OIDC client must allow `http://localhost:8085/auth/callback` for local testing.
+Your OIDC client must allow `http://127.0.0.1:8085/auth/callback` for local testing.
 
 ## Tests
 
